@@ -86,7 +86,7 @@ async def process_subject(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# Функция запроса к Gemini с актуальной моделью
+# Функция запроса к Gemini с автоповтором при перегрузке (503)
 async def ask_gemini(subject: str, prompt_content):
     system_instruction = (
         "Ты — строгий и точный школьный репетитор-помощник. "
@@ -97,18 +97,23 @@ async def ask_gemini(subject: str, prompt_content):
         "Выдавай решение структурировано: Дано / Ответ / Пошаговое объяснение."
     )
     
-    try:
-        response = ai_client.models.generate_content(
-            model='gemini-3.8-flash',  # Модель, которую требует актуальный API[span_2](start_span)[span_2](end_span)
-            contents=prompt_content,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.2,
+    # Делаем до 3 попыток запроса, если сервер перегружен
+    for attempt in range(3):
+        try:
+            response = ai_client.models.generate_content(
+                model='gemini-3.8-flash',
+                contents=prompt_content,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.2,
+                )
             )
-        )
-        return response.text
-    except Exception as e:
-        return f"⚠️ Ошибка при обращении к ИИ: {e}"
+            return response.text
+        except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                await asyncio.sleep(2)  # Ждем 2 секунды и повторяем попытку
+                continue
+            return f"⚠️ Ошибка при обращении к ИИ: {e}"
 
 # Решение текстовой задачи
 @router.message(SolverStates.waiting_for_task, F.text)
@@ -172,4 +177,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+        
