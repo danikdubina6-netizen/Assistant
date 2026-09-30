@@ -94,12 +94,12 @@ async def ask_gemini(subject: str, prompt_content):
         "Никаких посторонних тем, светских разговоров, шуток или обсуждений не по делу. "
         "Если пользователь отправляет что-то не связанное с учебой или школьной задачей, "
         "кратко откажись отвечать. "
-        "Выдавай решение структурированно: Дано / Ответ / Пошаговое объяснение."
+        "Выдавай решение структурировано: Дано / Ответ / Пошаговое объяснение."
     )
     
     try:
         response = ai_client.models.generate_content(
-            model='gemini-3.8-flash',  # Обновленная актуальная модель
+            model='gemini-3.8-flash',
             contents=prompt_content,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
@@ -122,11 +122,13 @@ async def solve_text_task(message: Message, state: FSMContext):
     full_prompt = f"Предмет: {subject}\nЗадача: {task_text}"
     solution = await ask_gemini(subject, full_prompt)
     
-    await bot.edit_message_text(
-        chat_id=message.chat.id,
-        message_id=processing_msg.message_id,
-        text=f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь решить еще задачу? Нажми /start",
-        parse_Mode="Markdown"
+    # Удаляем сообщение "Решаю задачу..."
+    await processing_msg.delete()
+    
+    # Отправляем ответ новым сообщением
+    await message.answer(
+        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь решить еще задачу? Нажми /start",
+        parse_mode="Markdown"
     )
     await state.set_state(SolverStates.choosing_subject)
 
@@ -152,17 +154,15 @@ async def solve_photo_task(message: Message, state: FSMContext):
         prompt = f"Предмет: {subject}. Реши эту задачу с картинки, объясни ход решения."
         solution = await ask_gemini(subject, [image_part, prompt])
         
-        await bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id,
-            text=f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nРешить еще что-то? Нажми /start",
+        await processing_msg.delete()
+        
+        await message.answer(
+            f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nРешить еще что-то? Нажми /start",
             parse_mode="Markdown"
         )
     except Exception as e:
-        await bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id,
-            text=f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом или скинуть другое фото."
+        await processing_msg.edit_text(
+            f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом или скинуть другое фото."
         )
         
     await state.set_state(SolverStates.choosing_subject)
