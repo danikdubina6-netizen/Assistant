@@ -13,7 +13,7 @@ from aiogram.types import (
 from google import genai
 from google.genai import types
 
-# 🔒 Читаем ключи из переменных окружения (GitHub Secrets / окружение сервера)
+# 🔒 Читаем ключи из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -86,7 +86,7 @@ async def process_subject(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# Функция запроса к Gemini с ЖЕСТКИМ ПРАВИЛОМ
+# Функция запроса к Gemini с актуальной моделью
 async def ask_gemini(subject: str, prompt_content):
     system_instruction = (
         "Ты — строгий и точный школьный репетитор-помощник. "
@@ -99,7 +99,7 @@ async def ask_gemini(subject: str, prompt_content):
     
     try:
         response = ai_client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.8-flash',  # Модель, которую требует актуальный API[span_2](start_span)[span_2](end_span)
             contents=prompt_content,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
