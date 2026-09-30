@@ -89,10 +89,10 @@ async def ask_gemini(subject: str, prompt_content):
         "Выдавай решение структурировано: Дано / Ответ / Пошаговое объяснение."
     )
     
-    for attempt in range(4):
+    for attempt in range(5):
         try:
             response = ai_client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.8-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -101,10 +101,12 @@ async def ask_gemini(subject: str, prompt_content):
             )
             return response.text
         except Exception as e:
-            if "503" in str(e) and attempt < 3:
-                await asyncio.sleep(3) # Увеличили паузу до 3 секунд
+            error_str = str(e)
+            if ("503" in error_str or "UNAVAILABLE" in error_str) and attempt < 4:
+                await asyncio.sleep(3)
                 continue
-            return f"⚠️ Ошибка при обращении к ИИ: {e}"
+            if attempt == 4:
+                return f"⚠️ Ошибка при обращении к ИИ: {e}"
 
 @router.message(SolverStates.waiting_for_task, F.text)
 async def solve_text_task(message: Message, state: FSMContext):
