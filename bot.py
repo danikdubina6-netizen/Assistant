@@ -13,21 +13,18 @@ from aiogram.types import (
 from google import genai
 from google.genai import types
 
-# 🔒 Читаем ключи из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
     raise ValueError("❌ Ошибка: Не найдены переменные окружения TELEGRAM_TOKEN или GEMINI_API_KEY!")
 
-# Инициализируем бота и Gemini Client
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# ВСЕ ШКОЛЬНЫЕ ПРЕДМЕТЫ
 SUBJECTS = {
     "math": "📐 Математика",
     "algebra": "📊 Алгебра",
@@ -43,12 +40,10 @@ SUBJECTS = {
     "geo": "🌍 География"
 }
 
-# Состояния FSM
 class SolverStates(StatesGroup):
     choosing_subject = State()
     waiting_for_task = State()
 
-# Клавиатура предметов (по 2 в ряд)
 def subjects_kb():
     keyboard = []
     row = []
@@ -61,7 +56,6 @@ def subjects_kb():
         keyboard.append(row)
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# Команда /start
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(SolverStates.choosing_subject)
@@ -70,7 +64,6 @@ async def cmd_start(message: Message, state: FSMContext):
         reply_markup=subjects_kb()
     )
 
-# Выбор предмета
 @router.callback_query(SolverStates.choosing_subject, F.data.startswith("sub_"))
 async def process_subject(callback: CallbackQuery, state: FSMContext):
     sub_key = callback.data.split("_")[1]
@@ -86,7 +79,6 @@ async def process_subject(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-# Функция запроса к Gemini с автоповтором при перегрузке (503)
 async def ask_gemini(subject: str, prompt_content):
     system_instruction = (
         "Ты — строгий и точный школьный репетитор-помощник. "
@@ -97,11 +89,10 @@ async def ask_gemini(subject: str, prompt_content):
         "Выдавай решение структурировано: Дано / Ответ / Пошаговое объяснение."
     )
     
-    # Делаем до 3 попыток запроса, если сервер перегружен
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             response = ai_client.models.generate_content(
-                model='gemini-3.8-flash',
+                model='gemini-2.5-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -110,12 +101,11 @@ async def ask_gemini(subject: str, prompt_content):
             )
             return response.text
         except Exception as e:
-            if "503" in str(e) and attempt < 2:
-                await asyncio.sleep(2)  # Ждем 2 секунды и повторяем попытку
+            if "503" in str(e) and attempt < 3:
+                await asyncio.sleep(3) # Увеличили паузу до 3 секунд
                 continue
             return f"⚠️ Ошибка при обращении к ИИ: {e}"
 
-# Решение текстовой задачи
 @router.message(SolverStates.waiting_for_task, F.text)
 async def solve_text_task(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -135,7 +125,6 @@ async def solve_text_task(message: Message, state: FSMContext):
     )
     await state.set_state(SolverStates.choosing_subject)
 
-# Решение задачи по фото (Gemini Vision)
 @router.message(SolverStates.waiting_for_task, F.photo)
 async def solve_photo_task(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -177,4 +166,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+    
