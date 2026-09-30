@@ -99,7 +99,7 @@ async def ask_gemini(subject: str, prompt_content):
     
     try:
         response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',  # Обновленная актуальная модель
             contents=prompt_content,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
@@ -126,7 +126,7 @@ async def solve_text_task(message: Message, state: FSMContext):
         chat_id=message.chat.id,
         message_id=processing_msg.message_id,
         text=f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь решить еще задачу? Нажми /start",
-        parse_mode="Markdown"
+        parse_Mode="Markdown"
     )
     await state.set_state(SolverStates.choosing_subject)
 
@@ -174,4 +174,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-  
+    
