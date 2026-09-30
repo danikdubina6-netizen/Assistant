@@ -99,7 +99,7 @@ async def ask_gemini(subject: str, prompt_content):
     
     try:
         response = ai_client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-1.5-flash',  # Стабильная и быстрая модель
             contents=prompt_content,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
@@ -122,10 +122,8 @@ async def solve_text_task(message: Message, state: FSMContext):
     full_prompt = f"Предмет: {subject}\nЗадача: {task_text}"
     solution = await ask_gemini(subject, full_prompt)
     
-    # Удаляем сообщение "Решаю задачу..."
     await processing_msg.delete()
     
-    # Отправляем ответ новым сообщением
     await message.answer(
         f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь решить еще задачу? Нажми /start",
         parse_mode="Markdown"
@@ -174,4 +172,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+        
