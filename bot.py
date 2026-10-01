@@ -23,7 +23,6 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Собираем все доступные ключи в один список
 clients = []
 for key in [GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3]:
     if key:
@@ -107,13 +106,14 @@ async def ask_gemini(subject_key: str, prompt_content):
         "НЕ используй заголовки с решеткой (###), выделяй главное жирным шрифтом."
     )
     
-    # Проходим по всем доступным ключам по кругу
-    total_tries = len(clients)
-    for i in range(total_tries):
+    # Прогоняем ключи с несколькими попытками и паузами
+    total_attempts = len(clients) * 2
+    for attempt in range(total_attempts):
         client = clients[current_client_idx]
         try:
+            # Переходим на проверенную gemini-1.5-flash, она стабильнее держит бесплатные лимиты
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-1.5-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -136,15 +136,17 @@ async def ask_gemini(subject_key: str, prompt_content):
             
             if answer_text and str(answer_text).strip():
                 return str(answer_text).strip()
-            
+                
         except Exception as e:
             print(f"Ошибка на ключе #{current_client_idx}: {e}")
             
-        # Сразу переключаемся на следующий ключ в цепочке
+        # Переключаемся на следующий ключ и слегка ждем перед повтором
         if len(clients) > 1:
             current_client_idx = (current_client_idx + 1) % len(clients)
+        
+        await asyncio.sleep(1.5)
             
-    return "⚠️ В данный момент все ключи перегружены или исчерпали лимиты. Попробуй отправить запрос еще раз через пару секунд."
+    return "⚠️ Серверы временно перегружены. Подожди 5 секунд и отправь вопрос еще раз."
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -218,4 +220,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                        
+    
