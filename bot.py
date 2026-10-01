@@ -114,10 +114,29 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                     temperature=0.3,
                 )
             )
-            if response and response.text:
-                return response.text
+            
+            # Надежное извлечение текста из ответа Google API
+            answer_text = None
+            try:
+                if hasattr(response, 'text') and response.text:
+                    answer_text = response.text
+            except Exception:
+                pass
+                
+            if not answer_text and hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if candidate.content and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                answer_text = part.text
+                                break
+                    if answer_text:
+                        break
+            
+            if answer_text:
+                return answer_text
             else:
-                return "⚠️ Нейросеть вернула пустой ответ. Попробуй переформулировать запрос."
+                return "⚠️ Нейросеть вернула пустой ответ или сработал фильтр безопасности. Попробуй переформулировать."
                 
         except Exception as e:
             error_str = str(e)
@@ -215,3 +234,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
