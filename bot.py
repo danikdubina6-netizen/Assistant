@@ -1,9 +1,7 @@
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import CommandStart
 from aiogram.types import (
     Message, 
     InlineKeyboardMarkup, 
@@ -40,9 +38,8 @@ SUBJECTS = {
     "geo": "🌍 География"
 }
 
-class SolverStates(StatesGroup):
-    choosing_subject = State()
-    waiting_for_task = State()
+# Словарь для хранения выбранного предмета для каждого пользователя
+user_subjects = {}
 
 def subjects_kb():
     keyboard = []
@@ -57,30 +54,29 @@ def subjects_kb():
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
-    await state.set_state(SolverStates.choosing_subject)
+async def cmd_start(message: Message):
+    user_subjects[message.from_user.id] = "Общий"
     await message.answer(
-        "Привет! 🤖 Какой предмет разобрать?",
+        "Привет! 🤖 Выбери предмет для помощи:",
         reply_markup=subjects_kb()
     )
 
-@router.callback_query(SolverStates.choosing_subject, F.data.startswith("sub_"))
-async def process_subject(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("sub_"))
+async def process_subject(callback: CallbackQuery):
     sub_key = callback.data.split("_")[1]
     subject_name = SUBJECTS.get(sub_key, "Предмет")
     
-    await state.update_data(subject=subject_name)
-    await state.set_state(SolverStates.waiting_for_task)
+    # Сохраняем предмет за конкретным пользователем
+    user_subjects[callback.from_user.id] = subject_name
     
     await callback.message.edit_text(
         f"✅ Выбран предмет: **{subject_name}**\n\n"
-        "Выбор зафиксирован! Кидай фото или текст — помогу разобраться 🚀",
+        "Отлично! Теперь отправляй текст задачи или фото, я на связи 🚀",
         parse_mode="Markdown"
     )
     await callback.answer()
 
 async def ask_gemini(subject: str, prompt_content):
-    # Смягчили инструкцию, чтобы бот отвечал на вопросы по учебе и софту шире
     system_instruction = (
         "Ты — толковый школьный репетитор-помощник. "
         "Помогай ученику по школьным предметам: решай задачи, объясняй правила, "
@@ -107,29 +103,31 @@ async def ask_gemini(subject: str, prompt_content):
             if attempt == 2:
                 return f"⚠️ Ошибка квот или обращения к ИИ: {e}"
 
-@router.message(SolverStates.waiting_for_task, F.text)
-async def solve_text_task(message: Message, state: FSMContext):
-    data = await state.get_data()
-    subject = data.get("subject", "Общий")
-    task_text = message.text
+@router.message(F.text)
+async def handle_text(message: Message):
+    # Игнорируем команды вроде /start
+    if message.text.startswith("/"):
+        return
+        
+    user_id = message.from_user.id
+    subject = user_subjects.get(user_id, "Общий")
     
     processing_msg = await message.answer("🔍 Думаю над ответом...")
     
-    full_prompt = f"Предмет: {subject}\nВопрос/Задача: {task_text}"
+    full_prompt = f"Предмет: {subject}\nВопрос/Задача: {message.text}"
     solution = await ask_gemini(subject, full_prompt)
     
     await processing_msg.delete()
     
     await message.answer(
-        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь разобрать что-то еще? Нажми /start",
+        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь выбрать другой предмет? Нажми /start",
         parse_mode="Markdown"
     )
-    await state.set_state(SolverStates.choosing_subject)
 
-@router.message(SolverStates.waiting_for_task, F.photo)
-async def solve_photo_task(message: Message, state: FSMContext):
-    data = await state.get_data()
-    subject = data.get("subject", "Общий")
+@router.message(F.photo)
+async def handle_photo(message: Message):
+    user_id = message.from_user.id
+    subject = user_subjects.get(user_id, "Общий")
     
     processing_msg = await message.answer("📸 Читаю фото...")
     
@@ -157,8 +155,6 @@ async def solve_photo_task(message: Message, state: FSMContext):
         await processing_msg.edit_text(
             f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом."
         )
-        
-    await state.set_state(SolverStates.choosing_subject)
 
 async def main():
     dp.include_router(router)
