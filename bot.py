@@ -38,7 +38,23 @@ SUBJECTS = {
     "geo": "🌍 География"
 }
 
-# Словарь для хранения выбранного предмета для каждого пользователя
+# Индивидуальные правила и специализация для каждого предмета
+SUBJECT_PROMPTS = {
+    "math": "Ты помогаешь по математике. Решай уравнения, выстраивай логику вычислений, пиши формулы.",
+    "algebra": "Ты помогаешь по алгебре. Объясняй преобразования выражений, графики и функции по шагам.",
+    "geometry": "Ты помогаешь по геометрии. Расписывай теоремы, свойства фигур, построения и доказательства.",
+    "physics": "Ты помогаешь по физике. Указывай законы, формулы, перевод единиц в СИ и подробный ход решения.",
+    "chemistry": "Ты помогаешь по химии. Балансируй уравнения реакций, объясняй термины и расчеты по молям.",
+    "biology": "Ты помогаешь по биологии. Четко и научно, но понятно объясняй процессы, анатомию и экосистемы.",
+    "history": "Ты помогаешь по истории. Называй точные даты, причины, ключевые фигуры и исторические последствия.",
+    "social": "Ты помогаешь по обществознанию. Разбирай термины, Конституцию, экономику и правовые ситуации.",
+    "russian": "Ты помогаешь по русскому языку. Объясняй правила орфографии, пунктуации, разборы слов и предложений.",
+    "english": "Ты помогаешь по английскому языку. Переводи тексты, объясняй грамматические времена и правила.",
+    "inf": "Ты помогаешь по информатике. Объясняй программирование (Python, Scratch, алгоритмы), логику, софт и устройство ПК.",
+    "geo": "Ты помогаешь по географии. Рассказывай про страны, климат, рельеф и экономическую географию."
+}
+
+# Словарь для хранения выбранного ключа предмета для каждого пользователя
 user_subjects = {}
 
 def subjects_kb():
@@ -55,7 +71,7 @@ def subjects_kb():
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
-    user_subjects[message.from_user.id] = "Общий"
+    user_subjects[message.from_user.id] = "math"
     await message.answer(
         "Привет! 🤖 Выбери предмет для помощи:",
         reply_markup=subjects_kb()
@@ -66,8 +82,8 @@ async def process_subject(callback: CallbackQuery):
     sub_key = callback.data.split("_")[1]
     subject_name = SUBJECTS.get(sub_key, "Предмет")
     
-    # Сохраняем предмет за конкретным пользователем
-    user_subjects[callback.from_user.id] = subject_name
+    # Сохраняем системный ключ предмета
+    user_subjects[callback.from_user.id] = sub_key
     
     await callback.message.edit_text(
         f"✅ Выбран предмет: **{subject_name}**\n\n"
@@ -76,12 +92,11 @@ async def process_subject(callback: CallbackQuery):
     )
     await callback.answer()
 
-async def ask_gemini(subject: str, prompt_content):
+async def ask_gemini(subject_key: str, prompt_content):
+    specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай ученику по школьной программе.")
     system_instruction = (
-        "Ты — толковый школьный репетитор-помощник. "
-        "Помогай ученику по школьным предметам: решай задачи, объясняй правила, "
-        "а также подсказывай по учебным программам, технологиям и софту (например, по информатике, Скретчу и т.д.). "
-        "Отвечай понятно, структурировано и по делу."
+        f"Ты — толковый школьный репетитор-помощник. {specific_instruction} "
+        "Отвечай понятно, структурировано, без лишней воды."
     )
     
     for attempt in range(3):
@@ -105,29 +120,30 @@ async def ask_gemini(subject: str, prompt_content):
 
 @router.message(F.text)
 async def handle_text(message: Message):
-    # Игнорируем команды вроде /start
     if message.text.startswith("/"):
         return
         
     user_id = message.from_user.id
-    subject = user_subjects.get(user_id, "Общий")
+    subject_key = user_subjects.get(user_id, "math")
+    subject_name = SUBJECTS.get(subject_key, "Общий")
     
     processing_msg = await message.answer("🔍 Думаю над ответом...")
     
-    full_prompt = f"Предмет: {subject}\nВопрос/Задача: {message.text}"
-    solution = await ask_gemini(subject, full_prompt)
+    full_prompt = f"Предмет: {subject_name}\nВопрос/Задача: {message.text}"
+    solution = await ask_gemini(subject_key, full_prompt)
     
     await processing_msg.delete()
     
     await message.answer(
-        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь выбрать другой предмет? Нажми /start",
+        f"📚 **Предмет:** {subject_name}\n\n{solution}\n\n--- \nХочешь выбрать другой предмет? Нажми /start",
         parse_mode="Markdown"
     )
 
 @router.message(F.photo)
 async def handle_photo(message: Message):
     user_id = message.from_user.id
-    subject = user_subjects.get(user_id, "Общий")
+    subject_key = user_subjects.get(user_id, "math")
+    subject_name = SUBJECTS.get(subject_key, "Общий")
     
     processing_msg = await message.answer("📸 Читаю фото...")
     
@@ -142,13 +158,13 @@ async def handle_photo(message: Message):
             mime_type='image/jpeg',
         )
         
-        prompt = f"Предмет: {subject}. Разбери задание с картинки, объясни ход решения или ответь на вопрос."
-        solution = await ask_gemini(subject, [image_part, prompt])
+        prompt = f"Предмет: {subject_name}. Разбери задание с картинки, объясни ход решения или ответь на вопрос."
+        solution = await ask_gemini(subject_key, [image_part, prompt])
         
         await processing_msg.delete()
         
         await message.answer(
-            f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nЗадать еще вопрос? Нажми /start",
+            f"📚 **Предмет:** {subject_name}\n\n{solution}\n\n--- \nЗадать еще вопрос? Нажми /start",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -158,9 +174,11 @@ async def handle_photo(message: Message):
 
 async def main():
     dp.include_router(router)
+    # Сбрасываем старые зависшие вебхуки
+    await bot.delete_webhook(drop_pending_updates=True)
     print("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+        
