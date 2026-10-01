@@ -106,14 +106,13 @@ async def ask_gemini(subject_key: str, prompt_content):
         "НЕ используй заголовки с решеткой (###), выделяй главное жирным шрифтом."
     )
     
-    # Прогоняем ключи с несколькими попытками и паузами
     total_attempts = len(clients) * 2
     for attempt in range(total_attempts):
         client = clients[current_client_idx]
         try:
-            # Переходим на проверенную gemini-1.5-flash, она стабильнее держит бесплатные лимиты
+            # Переключено на актуальную и стабильную gemini-3.5-flash-lite
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-3.5-flash-lite',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -140,11 +139,10 @@ async def ask_gemini(subject_key: str, prompt_content):
         except Exception as e:
             print(f"Ошибка на ключе #{current_client_idx}: {e}")
             
-        # Переключаемся на следующий ключ и слегка ждем перед повтором
         if len(clients) > 1:
             current_client_idx = (current_client_idx + 1) % len(clients)
         
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1)
             
     return "⚠️ Серверы временно перегружены. Подожди 5 секунд и отправь вопрос еще раз."
 
