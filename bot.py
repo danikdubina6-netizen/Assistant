@@ -117,15 +117,10 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                 )
             )
             
-            # Надежное извлечение текста из ответа Google API
             answer_text = None
-            try:
-                if hasattr(response, 'text') and response.text:
-                    answer_text = response.text
-            except Exception:
-                pass
-                
-            if not answer_text and hasattr(response, 'candidates') and response.candidates:
+            if response and hasattr(response, 'text') and response.text:
+                answer_text = response.text
+            elif response and hasattr(response, 'candidates') and response.candidates:
                 for candidate in response.candidates:
                     if candidate.content and candidate.content.parts:
                         for part in candidate.content.parts:
@@ -138,10 +133,12 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
             if answer_text:
                 return answer_text
             else:
-                return "⚠️ Нейросеть вернула пустой ответ или сработал фильтр безопасности. Попробуй переформулировать."
+                return "⚠️ Нейросеть вернула пустой ответ. Попробуй переформулировать запрос."
                 
         except Exception as e:
             error_str = str(e)
+            print(f"DEBUG Error (попытка {attempt + 1}): {error_str}")
+            
             is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
             is_overload = "503" in error_str or "UNAVAILABLE" in error_str
             
@@ -149,17 +146,17 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                 current_client_idx = (current_client_idx + 1) % len(clients)
                 if status_message:
                     try:
-                        await status_message.edit_text(f"🔄 Исчерпан лимит ключа. Переключаюсь на запасной...")
+                        await status_message.edit_text(f"🔄 Лимит исчерпан. Переключаюсь на запасной ключ...")
                     except:
                         pass
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 continue
             
             if (is_rate_limit or is_overload) and attempt < total_attempts - 1:
-                wait_time = 5 + attempt * 3
+                wait_time = 4 + attempt * 2
                 if status_message:
                     try:
-                        await status_message.edit_text(f"⏳ Серверы заняты. Ожидание {wait_time} сек...")
+                        await status_message.edit_text(f"⏳ Серверы перегружены. Ждем {wait_time} сек...")
                     except:
                         pass
                 await asyncio.sleep(wait_time)
@@ -236,4 +233,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+                
