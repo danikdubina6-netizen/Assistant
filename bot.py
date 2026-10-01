@@ -92,7 +92,7 @@ async def ask_gemini(subject: str, prompt_content):
     for attempt in range(3):
         try:
             response = ai_client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
