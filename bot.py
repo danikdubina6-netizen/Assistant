@@ -99,7 +99,9 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай ученику по школьной программе.")
     system_instruction = (
         f"Ты — толковый школьный репетитор-помощник. {specific_instruction} "
-        "Отвечай понятно, структурировано, без лишней воды."
+        "Отвечай понятно, структурировано, без лишней воды. "
+        "НЕ используй LaTeX-формулы (никаких $$, \\cdot, \\frac и т.д.), пиши математические знаки обычно (например: *, /, +). "
+        "НЕ используй символы заголовков типа ###, выделяй главное жирным шрифтом."
     )
     
     total_attempts = len(clients) * 3
