@@ -82,7 +82,6 @@ async def process_subject(callback: CallbackQuery):
     sub_key = callback.data.split("_")[1]
     subject_name = SUBJECTS.get(sub_key, "Предмет")
     
-    # Сохраняем системный ключ предмета
     user_subjects[callback.from_user.id] = sub_key
     
     await callback.message.edit_text(
@@ -99,7 +98,8 @@ async def ask_gemini(subject_key: str, prompt_content):
         "Отвечай понятно, структурировано, без лишней воды."
     )
     
-    for attempt in range(3):
+    # Увеличиваем число попыток до 5 с нарастающей паузой, чтобы пережить лимиты и штормы 503/429
+    for attempt in range(5):
         try:
             response = ai_client.models.generate_content(
                 model='gemini-3.5-flash',
@@ -112,11 +112,12 @@ async def ask_gemini(subject_key: str, prompt_content):
             return response.text
         except Exception as e:
             error_str = str(e)
-            if ("503" in error_str or "429" in error_str or "UNAVAILABLE" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < 2:
-                await asyncio.sleep(5)
+            if ("503" in error_str or "429" in error_str or "UNAVAILABLE" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < 4:
+                # Пауза увеличивается с каждой попыткой: 7с, 12с, 17с, 22с...
+                await asyncio.sleep(7 + attempt * 5)
                 continue
-            if attempt == 2:
-                return f"⚠️ Ошибка квот или обращения к ИИ: {e}"
+            if attempt == 4:
+                return f"⚠️ Серверы Google перегружены или исчерпан лимит бесплатных запросов. Попробуй отправить запрос еще раз через минутку."
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -174,11 +175,10 @@ async def handle_photo(message: Message):
 
 async def main():
     dp.include_router(router)
-    # Сбрасываем старые зависшие вебхуки
     await bot.delete_webhook(drop_pending_updates=True)
     print("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+    
