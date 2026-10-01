@@ -12,7 +12,6 @@ from google import genai
 from google.genai import types
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-# Берем два ключа из окружения
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
 
@@ -23,12 +22,10 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Создаем два клиента для разных ключей (если второй есть)
 clients = [genai.Client(api_key=GEMINI_API_KEY)]
 if GEMINI_API_KEY_2:
     clients.append(genai.Client(api_key=GEMINI_API_KEY_2))
 
-# Индекс текущего активного ключа
 current_client_idx = 0
 
 SUBJECTS = {
@@ -105,7 +102,6 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
         "Отвечай понятно, структурировано, без лишней воды."
     )
     
-    # Пробуем сделать запрос, перебирая ключи при ошибках лимита/нагрузки
     total_attempts = len(clients) * 3
     for attempt in range(total_attempts):
         active_client = clients[current_client_idx]
@@ -118,14 +114,17 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                     temperature=0.3,
                 )
             )
-            return response.text
+            if response and response.text:
+                return response.text
+            else:
+                return "⚠️ Нейросеть вернула пустой ответ. Попробуй переформулировать запрос."
+                
         except Exception as e:
             error_str = str(e)
             is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
             is_overload = "503" in error_str or "UNAVAILABLE" in error_str
             
             if (is_rate_limit or is_overload) and len(clients) > 1:
-                # Если ключей несколько и уперлись в лимит — мгновенно переключаемся на следующий ключ
                 current_client_idx = (current_client_idx + 1) % len(clients)
                 if status_message:
                     try:
@@ -146,7 +145,7 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                 continue
                 
             if attempt == total_attempts - 1:
-                return f"⚠️️ Ошибка запроса к ИИ: {e}"
+                return f"⚠ Ошибка запроса к ИИ: {e}"
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -216,4 +215,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
