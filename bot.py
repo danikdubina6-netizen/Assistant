@@ -91,14 +91,13 @@ async def process_subject(callback: CallbackQuery):
     )
     await callback.answer()
 
-async def ask_gemini(subject_key: str, prompt_content):
+async def ask_gemini(subject_key: str, prompt_content, status_message: Message = None):
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай ученику по школьной программе.")
     system_instruction = (
         f"Ты — толковый школьный репетитор-помощник. {specific_instruction} "
         "Отвечай понятно, структурировано, без лишней воды."
     )
     
-    # Увеличиваем число попыток до 5 с нарастающей паузой, чтобы пережить лимиты и штормы 503/429
     for attempt in range(5):
         try:
             response = ai_client.models.generate_content(
@@ -113,8 +112,13 @@ async def ask_gemini(subject_key: str, prompt_content):
         except Exception as e:
             error_str = str(e)
             if ("503" in error_str or "429" in error_str or "UNAVAILABLE" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < 4:
-                # Пауза увеличивается с каждой попыткой: 7с, 12с, 17с, 22с...
-                await asyncio.sleep(7 + attempt * 5)
+                wait_time = 7 + attempt * 5
+                if status_message:
+                    try:
+                        await status_message.edit_text(f"⏳ Серверы Google заняты. Попытка {attempt + 2}/5 (жду {wait_time} сек)...")
+                    except:
+                        pass
+                await asyncio.sleep(wait_time)
                 continue
             if attempt == 4:
                 return f"⚠️ Серверы Google перегружены или исчерпан лимит бесплатных запросов. Попробуй отправить запрос еще раз через минутку."
@@ -131,9 +135,12 @@ async def handle_text(message: Message):
     processing_msg = await message.answer("🔍 Думаю над ответом...")
     
     full_prompt = f"Предмет: {subject_name}\nВопрос/Задача: {message.text}"
-    solution = await ask_gemini(subject_key, full_prompt)
+    solution = await ask_gemini(subject_key, full_prompt, processing_msg)
     
-    await processing_msg.delete()
+    try:
+        await processing_msg.delete()
+    except:
+        pass
     
     await message.answer(
         f"📚 **Предмет:** {subject_name}\n\n{solution}\n\n--- \nХочешь выбрать другой предмет? Нажми /start",
@@ -160,9 +167,12 @@ async def handle_photo(message: Message):
         )
         
         prompt = f"Предмет: {subject_name}. Разбери задание с картинки, объясни ход решения или ответь на вопрос."
-        solution = await ask_gemini(subject_key, [image_part, prompt])
+        solution = await ask_gemini(subject_key, [image_part, prompt], processing_msg)
         
-        await processing_msg.delete()
+        try:
+            await processing_msg.delete()
+        except:
+            pass
         
         await message.answer(
             f"📚 **Предмет:** {subject_name}\n\n{solution}\n\n--- \nЗадать еще вопрос? Нажми /start",
