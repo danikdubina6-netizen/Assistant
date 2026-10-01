@@ -22,7 +22,10 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-clients = [genai.Client(api_key=GEMINI_API_KEY)]
+# Собираем список доступных клиентов ИИ
+clients = []
+if GEMINI_API_KEY:
+    clients.append(genai.Client(api_key=GEMINI_API_KEY))
 if GEMINI_API_KEY_2:
     clients.append(genai.Client(api_key=GEMINI_API_KEY_2))
 
@@ -94,22 +97,23 @@ async def process_subject(callback: CallbackQuery):
     )
     await callback.answer()
 
-async def ask_gemini(subject_key: str, prompt_content, status_message: Message = None):
+async def ask_gemini(subject_key: str, prompt_content):
     global current_client_idx
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай ученику по школьной программе.")
     system_instruction = (
         f"Ты — толковый школьный репетитор-помощник. {specific_instruction} "
         "Отвечай понятно, структурировано, без лишней воды. "
-        "НЕ используй LaTeX-формулы (никаких $$, \\cdot, \\frac и т.д.), пиши математические знаки обычно (например: *, /, +). "
-        "НЕ используй символы заголовков типа ###, выделяй главное жирным шрифтом."
+        "НЕ используй LaTeX-формулы (никаких $, \\, и т.д.), пиши математические знаки обычным текстом. "
+        "НЕ используй заголовки с решеткой (###), выделяй главное жирным шрифтом."
     )
     
-    total_attempts = len(clients) * 3
-    for attempt in range(total_attempts):
-        active_client = clients[current_client_idx]
+    # Пройдемся по всем доступным ключам по кругу (максимум столько попыток, сколько ключей)
+    total_tries = len(clients)
+    for i in range(total_tries):
+        client = clients[current_client_idx]
         try:
-            response = active_client.models.generate_content(
-                model='gemini-3.5-flash',
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',  # Используем надежную быструю модель
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -117,6 +121,7 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                 )
             )
             
+            # Безопасно вытаскиваем текст ответа
             answer_text = None
             if response and hasattr(response, 'text') and response.text:
                 answer_text = response.text
@@ -130,40 +135,17 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
                     if answer_text:
                         break
             
-            if answer_text:
-                return answer_text
-            else:
-                return "⚠️ Нейросеть вернула пустой ответ. Попробуй переформулировать запрос."
-                
+            if answer_text and str(answer_text).strip():
+                return str(answer_text).strip()
+            
         except Exception as e:
-            error_str = str(e)
-            print(f"DEBUG Error (попытка {attempt + 1}): {error_str}")
+            print(f"Ошибка на ключе #{current_client_idx}: {e}")
             
-            is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
-            is_overload = "503" in error_str or "UNAVAILABLE" in error_str
+        # Если этот ключ не сработал или вернул пустоту — сразу переключаемся на следующий
+        if len(clients) > 1:
+            current_client_idx = (current_client_idx + 1) % len(clients)
             
-            if (is_rate_limit or is_overload) and len(clients) > 1:
-                current_client_idx = (current_client_idx + 1) % len(clients)
-                if status_message:
-                    try:
-                        await status_message.edit_text(f"🔄 Лимит исчерпан. Переключаюсь на запасной ключ...")
-                    except:
-                        pass
-                await asyncio.sleep(2)
-                continue
-            
-            if (is_rate_limit or is_overload) and attempt < total_attempts - 1:
-                wait_time = 4 + attempt * 2
-                if status_message:
-                    try:
-                        await status_message.edit_text(f"⏳ Серверы перегружены. Ждем {wait_time} сек...")
-                    except:
-                        pass
-                await asyncio.sleep(wait_time)
-                continue
-                
-            if attempt == total_attempts - 1:
-                return f"⚠ Ошибка запроса к ИИ: {e}"
+    return "⚠️ В данный момент серверы перегружены или исчерпаны лимиты. Попробуй отправить запрос еще раз через пару секунд."
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -177,7 +159,7 @@ async def handle_text(message: Message):
     processing_msg = await message.answer("🔍 Думаю над ответом...")
     
     full_prompt = f"Предмет: {subject_name}\nВопрос/Задача: {message.text}"
-    solution = await ask_gemini(subject_key, full_prompt, processing_msg)
+    solution = await ask_gemini(subject_key, full_prompt)
     
     try:
         await processing_msg.delete()
@@ -209,7 +191,7 @@ async def handle_photo(message: Message):
         )
         
         prompt = f"Предмет: {subject_name}. Разбери задание с картинки, объясни ход решения или ответь на вопрос."
-        solution = await ask_gemini(subject_key, [image_part, prompt], processing_msg)
+        solution = await ask_gemini(subject_key, [image_part, prompt])
         
         try:
             await processing_msg.delete()
@@ -221,16 +203,20 @@ async def handle_photo(message: Message):
             parse_mode="Markdown"
         )
     except Exception as e:
-        await processing_msg.edit_text(
-            f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом."
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        await message.answer(
+            f"⚠️ Не удалось обработать фото. Попробуй отправить текстом."
         )
 
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print(f"Бот запущен! Загружено API-ключей: {len(clients)}")
+    print(f"Бот запущен! Активных API-ключей: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-                
+    
