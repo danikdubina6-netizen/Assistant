@@ -92,7 +92,7 @@ async def ask_gemini(subject: str, prompt_content):
     for attempt in range(3):
         try:
             response = ai_client.models.generate_content(
-                model='gemini-3.8-flash',  # Модель, которую требует сервер
+                model='gemini-3.5-flash',  # Перешли на версию 3.5
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -168,4 +168,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-            
+    
