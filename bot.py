@@ -12,16 +12,24 @@ from google import genai
 from google.genai import types
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+# Берем два ключа из окружения
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    raise ValueError("❌ Ошибка: Не найдены переменные окружения TELEGRAM_TOKEN или GEMINI_API_KEY!")
+    raise ValueError("❌ Ошибка: Не найден TELEGRAM_TOKEN или основной GEMINI_API_KEY!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+# Создаем два клиента для разных ключей (если второй есть)
+clients = [genai.Client(api_key=GEMINI_API_KEY)]
+if GEMINI_API_KEY_2:
+    clients.append(genai.Client(api_key=GEMINI_API_KEY_2))
+
+# Индекс текущего активного ключа
+current_client_idx = 0
 
 SUBJECTS = {
     "math": "📐 Математика",
@@ -38,7 +46,6 @@ SUBJECTS = {
     "geo": "🌍 География"
 }
 
-# Индивидуальные правила и специализация для каждого предмета
 SUBJECT_PROMPTS = {
     "math": "Ты помогаешь по математике. Решай уравнения, выстраивай логику вычислений, пиши формулы.",
     "algebra": "Ты помогаешь по алгебре. Объясняй преобразования выражений, графики и функции по шагам.",
@@ -54,7 +61,6 @@ SUBJECT_PROMPTS = {
     "geo": "Ты помогаешь по географии. Рассказывай про страны, климат, рельеф и экономическую географию."
 }
 
-# Словарь для хранения выбранного ключа предмета для каждого пользователя
 user_subjects = {}
 
 def subjects_kb():
@@ -92,15 +98,19 @@ async def process_subject(callback: CallbackQuery):
     await callback.answer()
 
 async def ask_gemini(subject_key: str, prompt_content, status_message: Message = None):
+    global current_client_idx
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай ученику по школьной программе.")
     system_instruction = (
         f"Ты — толковый школьный репетитор-помощник. {specific_instruction} "
         "Отвечай понятно, структурировано, без лишней воды."
     )
     
-    for attempt in range(5):
+    # Пробуем сделать запрос, перебирая ключи при ошибках лимита/нагрузки
+    total_attempts = len(clients) * 3
+    for attempt in range(total_attempts):
+        active_client = clients[current_client_idx]
         try:
-            response = ai_client.models.generate_content(
+            response = active_client.models.generate_content(
                 model='gemini-3.5-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
@@ -111,17 +121,32 @@ async def ask_gemini(subject_key: str, prompt_content, status_message: Message =
             return response.text
         except Exception as e:
             error_str = str(e)
-            if ("503" in error_str or "429" in error_str or "UNAVAILABLE" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < 4:
-                wait_time = 7 + attempt * 5
+            is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+            is_overload = "503" in error_str or "UNAVAILABLE" in error_str
+            
+            if (is_rate_limit or is_overload) and len(clients) > 1:
+                # Если ключей несколько и уперлись в лимит — мгновенно переключаемся на следующий ключ
+                current_client_idx = (current_client_idx + 1) % len(clients)
                 if status_message:
                     try:
-                        await status_message.edit_text(f"⏳ Серверы Google заняты. Попытка {attempt + 2}/5 (жду {wait_time} сек)...")
+                        await status_message.edit_text(f"🔄 Исчерпан лимит ключа. Переключаюсь на запасной...")
+                    except:
+                        pass
+                await asyncio.sleep(1)
+                continue
+            
+            if (is_rate_limit or is_overload) and attempt < total_attempts - 1:
+                wait_time = 5 + attempt * 3
+                if status_message:
+                    try:
+                        await status_message.edit_text(f"⏳ Серверы заняты. Ожидание {wait_time} сек...")
                     except:
                         pass
                 await asyncio.sleep(wait_time)
                 continue
-            if attempt == 4:
-                return f"⚠️ Серверы Google перегружены или исчерпан лимит бесплатных запросов. Попробуй отправить запрос еще раз через минутку."
+                
+            if attempt == total_attempts - 1:
+                return f"⚠️️ Ошибка запроса к ИИ: {e}"
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -186,7 +211,7 @@ async def handle_photo(message: Message):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущен!")
+    print(f"Бот запущен! Загружено API-ключей: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
