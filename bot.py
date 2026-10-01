@@ -14,6 +14,7 @@ from google.genai import types
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
+GEMINI_API_KEY_3 = os.getenv("GEMINI_API_KEY_3")
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
     raise ValueError("❌ Ошибка: Не найден TELEGRAM_TOKEN или основной GEMINI_API_KEY!")
@@ -22,12 +23,11 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Собираем список доступных клиентов ИИ
+# Собираем все доступные ключи в один список
 clients = []
-if GEMINI_API_KEY:
-    clients.append(genai.Client(api_key=GEMINI_API_KEY))
-if GEMINI_API_KEY_2:
-    clients.append(genai.Client(api_key=GEMINI_API_KEY_2))
+for key in [GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3]:
+    if key:
+        clients.append(genai.Client(api_key=key))
 
 current_client_idx = 0
 
@@ -107,13 +107,13 @@ async def ask_gemini(subject_key: str, prompt_content):
         "НЕ используй заголовки с решеткой (###), выделяй главное жирным шрифтом."
     )
     
-    # Пройдемся по всем доступным ключам по кругу (максимум столько попыток, сколько ключей)
+    # Проходим по всем доступным ключам по кругу
     total_tries = len(clients)
     for i in range(total_tries):
         client = clients[current_client_idx]
         try:
             response = client.models.generate_content(
-                model='gemini-2.5-flash',  # Используем надежную быструю модель
+                model='gemini-2.5-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -121,7 +121,6 @@ async def ask_gemini(subject_key: str, prompt_content):
                 )
             )
             
-            # Безопасно вытаскиваем текст ответа
             answer_text = None
             if response and hasattr(response, 'text') and response.text:
                 answer_text = response.text
@@ -141,11 +140,11 @@ async def ask_gemini(subject_key: str, prompt_content):
         except Exception as e:
             print(f"Ошибка на ключе #{current_client_idx}: {e}")
             
-        # Если этот ключ не сработал или вернул пустоту — сразу переключаемся на следующий
+        # Сразу переключаемся на следующий ключ в цепочке
         if len(clients) > 1:
             current_client_idx = (current_client_idx + 1) % len(clients)
             
-    return "⚠️ В данный момент серверы перегружены или исчерпаны лимиты. Попробуй отправить запрос еще раз через пару секунд."
+    return "⚠️ В данный момент все ключи перегружены или исчерпали лимиты. Попробуй отправить запрос еще раз через пару секунд."
 
 @router.message(F.text)
 async def handle_text(message: Message):
@@ -214,9 +213,9 @@ async def handle_photo(message: Message):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
-    print(f"Бот запущен! Активных API-ключей: {len(clients)}")
+    print(f"Бот запущен! Активных API-ключей в ротации: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+                        
