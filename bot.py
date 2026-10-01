@@ -60,7 +60,7 @@ def subjects_kb():
 async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(SolverStates.choosing_subject)
     await message.answer(
-        "Привет! 🤖 Какой предмет решить тебе?",
+        "Привет! 🤖 Какой предмет разобрать?",
         reply_markup=subjects_kb()
     )
 
@@ -74,29 +74,28 @@ async def process_subject(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         f"✅ Выбран предмет: **{subject_name}**\n\n"
-        "Выбор зафиксирован! Кидай фото или текст - решим вместе успешно задачу 🚀",
+        "Выбор зафиксирован! Кидай фото или текст — помогу разобраться 🚀",
         parse_mode="Markdown"
     )
     await callback.answer()
 
 async def ask_gemini(subject: str, prompt_content):
+    # Смягчили инструкцию, чтобы бот отвечал на вопросы по учебе и софту шире
     system_instruction = (
-        "Ты — строгий и точный школьный репетитор-помощник. "
-        "ТВОЕ ЕДИНСТВЕННОЕ ПРАВИЛО: ты решаешь исключительно школьные задачи и объясняешь учебный материал. "
-        "Никаких посторонних тем, светских разговоров, шуток или обсуждений не по делу. "
-        "Если пользователь отправляет что-то не связанное с учебой или школьной задачей, "
-        "кратко откажись отвечать. "
-        "Выдавай решение структурировано: Дано / Ответ / Пошаговое объяснение."
+        "Ты — толковый школьный репетитор-помощник. "
+        "Помогай ученику по школьным предметам: решай задачи, объясняй правила, "
+        "а также подсказывай по учебным программам, технологиям и софту (например, по информатике, Скретчу и т.д.). "
+        "Отвечай понятно, структурировано и по делу."
     )
     
     for attempt in range(3):
         try:
             response = ai_client.models.generate_content(
-                model='gemini-3.5-flash',  # Перешли на версию 3.5
+                model='gemini-3.5-flash',
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.2,
+                    temperature=0.3,
                 )
             )
             return response.text
@@ -114,15 +113,15 @@ async def solve_text_task(message: Message, state: FSMContext):
     subject = data.get("subject", "Общий")
     task_text = message.text
     
-    processing_msg = await message.answer("🔍 Решаю задачу...")
+    processing_msg = await message.answer("🔍 Думаю над ответом...")
     
-    full_prompt = f"Предмет: {subject}\nЗадача: {task_text}"
+    full_prompt = f"Предмет: {subject}\nВопрос/Задача: {task_text}"
     solution = await ask_gemini(subject, full_prompt)
     
     await processing_msg.delete()
     
     await message.answer(
-        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь решить еще задачу? Нажми /start",
+        f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nХочешь разобрать что-то еще? Нажми /start",
         parse_mode="Markdown"
     )
     await state.set_state(SolverStates.choosing_subject)
@@ -132,7 +131,7 @@ async def solve_photo_task(message: Message, state: FSMContext):
     data = await state.get_data()
     subject = data.get("subject", "Общий")
     
-    processing_msg = await message.answer("📸 Читаю фото и решаю...")
+    processing_msg = await message.answer("📸 Читаю фото...")
     
     try:
         photo = message.photo[-1]
@@ -145,25 +144,25 @@ async def solve_photo_task(message: Message, state: FSMContext):
             mime_type='image/jpeg',
         )
         
-        prompt = f"Предмет: {subject}. Реши эту задачу с картинки, объясни ход решения."
+        prompt = f"Предмет: {subject}. Разбери задание с картинки, объясни ход решения или ответь на вопрос."
         solution = await ask_gemini(subject, [image_part, prompt])
         
         await processing_msg.delete()
         
         await message.answer(
-            f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nРешить еще что-то? Нажми /start",
+            f"📚 **Предмет:** {subject}\n\n{solution}\n\n--- \nЗадать еще вопрос? Нажми /start",
             parse_mode="Markdown"
         )
     except Exception as e:
         await processing_msg.edit_text(
-            f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом или скинуть другое фото."
+            f"⚠️ Не удалось обработать фото: {e}\nПопробуй отправить текстом."
         )
         
     await state.set_state(SolverStates.choosing_subject)
 
 async def main():
     dp.include_router(router)
-    print("Бот запущен и готов решать задачи!")
+    print("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
