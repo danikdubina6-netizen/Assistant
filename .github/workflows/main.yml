@@ -5,7 +5,9 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:
+  workflow_dispatch: # Чтобы можно было запустить вручную кнопкой
+  schedule:
+    - cron: '0 */5 * * *' # Перезапуск каждые 5 часов по UTC
 
 jobs:
   build:
