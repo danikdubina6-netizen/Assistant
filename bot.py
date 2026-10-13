@@ -17,7 +17,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
 GEMINI_API_KEY_3 = os.getenv("GEMINI_API_KEY_3")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Нужен для распознавания голоса
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
     raise ValueError("❌ Ошибка: Не найден TELEGRAM_TOKEN или основной GEMINI_API_KEY!")
@@ -63,11 +63,10 @@ SUBJECT_PROMPTS = {
     "geo": "Ты помогаешь по географии. Рассказывай про страны, климат, рельеф и экономическую географию."
 }
 
-# Хранилища данных в памяти
 user_subjects = {}
-user_histories = {}  # Память диалогов: {user_id: [{"role": "user", "text": "..."}, ...]}
-user_steps = {}      # Для пагинации длинных ответов: {user_id: {"chunks": [...], "index": 0}}
-user_trains = {}     # Для тренажера: {user_id: {"question": "...", "answer": "..."}}
+user_histories = {}
+user_steps = {}
+user_trains = {}
 
 def subjects_kb():
     keyboard = []
@@ -199,7 +198,6 @@ async def cmd_train(message: Message):
     res = await ask_gemini(subject_key, prompt)
     await processing.delete()
     
-    # Парсим ответ
     parts = res.split("ОТВЕТ:")
     task_text = parts[0].strip()
     correct_ans = parts[1].strip() if len(parts) > 1 else "решение"
@@ -216,11 +214,11 @@ async def process_subject(callback: CallbackQuery):
     sub_key = callback.data.split("_")[1]
     subject_name = SUBJECTS.get(sub_key, "Предмет")
     user_subjects[callback.from_user.id] = sub_key
-    user_histories[callback.from_user.id] = []  кнш сбросим историю при смене темы
+    user_histories[callback.from_user.id] = []  # Сбросим историю при смене темы
     
     await callback.message.edit_text(
         f"✅ Выбран предмет: **{subject_name}**\n\n"
-        "Отправь текст задачи, фото или голосовухa. Доступно меню ниже 👇",
+        "Отправь текст задачи, фото или голосовуху. Доступно меню ниже 👇",
         parse_mode="Markdown",
         reply_markup=main_menu_kb()
     )
@@ -237,7 +235,6 @@ async def process_menu(callback: CallbackQuery):
         await callback.message.edit_text("Выбери предмет:", reply_markup=subjects_kb())
     elif action == "train":
         await callback.answer()
-        # Имитируем вызов тренажера
         fake_msg = callback.message
         fake_msg.from_user = callback.from_user
         await cmd_train(fake_msg)
@@ -281,7 +278,6 @@ async def handle_text(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
     
-    # Проверка на тренажер
     if user_id in user_trains:
         correct = user_trains[user_id]["answer"]
         user_ans = message.text.strip().lower()
@@ -292,7 +288,6 @@ async def handle_text(message: Message):
             await message.answer(f"❌ Не совсем так. Правильный ответ содержался в условии задачи. Попробуй еще раз через /train!")
         return
 
-    # Работа с историей диалога
     if user_id not in user_histories:
         user_histories[user_id] = []
     
@@ -303,7 +298,6 @@ async def handle_text(message: Message):
     full_prompt = f"Предмет: {subject_name}\nВопрос: {message.text}"
     solution = await ask_gemini(subject_key, full_prompt, history=history)
     
-    # Сохраняем в историю (ограничим до 4 сообщений)
     history.append({"role": "user", "text": message.text})
     history.append({"role": "assistant", "text": solution})
     if len(history) > 6:
@@ -315,7 +309,6 @@ async def handle_text(message: Message):
     except:
         pass
     
-    # Разбиваем длинный текст
     chunks = split_text(solution)
     user_steps[user_id] = {"chunks": chunks, "index": 0}
     
@@ -417,7 +410,6 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # Регистрация команд в меню Telegram
     await bot.set_my_commands([
         BotCommand(command="start", description="Перезапустить бота и выбрать предмет"),
         BotCommand(command="train", description="🎯 Тренажер задач (получить пример)")
