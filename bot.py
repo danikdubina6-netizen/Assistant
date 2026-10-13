@@ -112,7 +112,7 @@ async def ask_gemini(subject_key: str, prompt_content, history=None):
         client = clients[current_client_idx]
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-3.5-flash-lite',
                 contents=full_contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -214,7 +214,7 @@ async def process_subject(callback: CallbackQuery):
     sub_key = callback.data.split("_")[1]
     subject_name = SUBJECTS.get(sub_key, "Предмет")
     user_subjects[callback.from_user.id] = sub_key
-    user_histories[callback.from_user.id] = []  # Сбросим историю при смене темы
+    user_histories[callback.from_user.id] = []
     
     await callback.message.edit_text(
         f"✅ Выбран предмет: **{subject_name}**\n\n"
@@ -415,7 +415,7 @@ async def main():
         BotCommand(command="train", description="🎯 Тренажер задач (получить пример)")
     ])
     
-    print(f"Бот запущен со всеми фичами (на модели Gemini 3.5)! Ключей в ротации: {len(clients)}")
+    print(f"Бот запущен на Gemini 3.5 Flash Lite! Ключей в ротации: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
