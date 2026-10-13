@@ -415,7 +415,7 @@ async def main():
         BotCommand(command="train", description="🎯 Тренажер задач (получить пример)")
     ])
     
-    print(f"Бот запущен со всеми фичами! Ключей в ротации: {len(clients)}")
+    print(f"Бот запущен со всеми фичами (на модели Gemini 3.5)! Ключей в ротации: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
