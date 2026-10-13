@@ -24,7 +24,6 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Собираем ключи для быстрой ротации
 keys = [k for k in [GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3] if k]
 current_key_idx = 0
 
@@ -82,7 +81,6 @@ def main_menu_kb():
         [InlineKeyboardButton(text="🔄 Сменить предмет", callback_data="menu_subjects")]
     ])
 
-# Супер-быстрый прямой запрос к Gemini REST API через aiohttp
 async def ask_gemini_fast(subject_key: str, text_prompt: str, history=None):
     global current_key_idx
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай по учебе.")
@@ -107,7 +105,7 @@ async def ask_gemini_fast(subject_key: str, text_prompt: str, history=None):
         }
     }
 
-    url_template = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}"
+    url_template = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={}"
 
     async with aiohttp.ClientSession() as session:
         for _ in range(len(keys) * 2):
@@ -122,6 +120,8 @@ async def ask_gemini_fast(subject_key: str, text_prompt: str, history=None):
                             parts = candidates[0].get("content", {}).get("parts", [])
                             if parts and "text" in parts[0]:
                                 return parts[0]["text"].strip()
+                    else:
+                        print(f"Ошибка HTTP {resp.status}: {await resp.text()}")
             except Exception as e:
                 print(f"Ошибка API на ключе #{current_key_idx}: {e}")
             
@@ -345,4 +345,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+    
