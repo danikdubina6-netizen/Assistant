@@ -49,8 +49,8 @@ SUBJECTS = {
 }
 
 SUBJECT_PROMPTS = {
-    "math": "Решай математические задачи быстро и по шагам.",
-    "algebra": "Объясняй алгебраические преобразования кратко.",
+    "math": "Решай математические задачи. Если вопрос элементарный, отвечай коротко, без лишних шагов.",
+    "algebra": "Объясняй алгебраические преобразования кратко и по делу.",
     "geometry": "Давай четкий ход решения геометрических задач.",
     "physics": "Пиши формулы и быстрый расчет в СИ.",
     "chemistry": "Балансируй реакции и давай быстрый ответ.",
@@ -91,8 +91,9 @@ async def ask_gemini(subject_key: str, prompt_content, history=None):
     global current_client_idx
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай по учебе.")
     system_instruction = (
-        f"Ты — быстрый репетитор. {specific_instruction} "
-        "Отвечай максимально быстро, структурировано, без воды. "
+        f"Ты — строгий и быстрый школьный репетитор-помощник. {specific_instruction} "
+        "ВАЖНО: Отвечай строго на вопросы по выбранному школьному предмету. "
+        "Если вопрос сторонний, говори: 'Я школьный репетитор, давай решать учебные задачи!'. "
         "Без LaTeX (никаких $, \\). Выделяй главное жирным шрифтом."
     )
     
@@ -116,7 +117,7 @@ async def ask_gemini(subject_key: str, prompt_content, history=None):
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     temperature=0.1,
-                    max_output_tokens=1000,
+                    max_output_tokens=800,
                 )
             )
             
@@ -180,7 +181,7 @@ async def transcribe_audio_groq(file_path: str) -> str:
 async def cmd_start(message: Message):
     user_subjects[message.from_user.id] = "math"
     await message.answer(
-        "⚡ Бот ускорен! Выбери предмет:",
+        "⚡ Бот настроен! Выбери предмет:",
         reply_markup=subjects_kb()
     )
 
@@ -190,11 +191,8 @@ async def cmd_train(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Математика")
     
-    processing = await message.answer("⚡ Генерирую...")
     prompt = f"Дай 1 короткую задачу по предмету {subject_name}. Внизу напиши ОТВЕТ: [ответ]."
-    
     res = await ask_gemini(subject_key, prompt)
-    await processing.delete()
     
     parts = res.split("ОТВЕТ:")
     task_text = parts[0].strip()
@@ -245,10 +243,17 @@ async def process_menu(callback: CallbackQuery):
 async def process_quiz(callback: CallbackQuery):
     user_id = callback.from_user.id
     subject_key = user_subjects.get(user_id, "math")
-    await callback.answer("Генерирую тест...")
-    prompt = "Дай быстрый мини-тест из 1 вопроса с 3 вариантами ответа."
+    history = user_histories.get(user_id, [])
+    
+    last_context = ""
+    if history:
+        last_context = f"Основываясь на последнем вопросе ученика: '{history[-1].get('text', '')}',"
+
+    await callback.answer("Генерирую тест по теме...")
+    prompt = f"{last_context} Составь мини-тест из 1 вопроса с 3 вариантами ответа строго по этой же теме."
+    
     res = await ask_gemini(subject_key, prompt)
-    await callback.message.answer(f"🧠 **Тест:**\n\n{res}", parse_mode="Markdown")
+    await callback.message.answer(f"🧠 **Проверка по теме:**\n\n{res}", parse_mode="Markdown")
 
 @router.callback_query(F.data == "next_chunk")
 async def process_next_chunk(callback: CallbackQuery):
@@ -273,12 +278,6 @@ async def handle_text(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
     
-    # Мгновенный ответ на элементарную математику без запроса к API
-    clean_text = message.text.strip().replace(" ", "").replace("=", "")
-    if clean_text in ["2+2", "2+2=", "плюс22"]:
-        await message.answer("📚 **Математика**\n\n**4**", parse_mode="Markdown")
-        return
-
     if user_id in user_trains:
         correct = user_trains[user_id]["answer"]
         user_ans = message.text.strip().lower()
@@ -293,7 +292,6 @@ async def handle_text(message: Message):
         user_histories[user_id] = []
     
     history = user_histories[user_id]
-    processing_msg = await message.answer("⚡ Думаю...")
     
     full_prompt = f"Предмет: {subject_name}\nВопрос: {message.text}"
     solution = await ask_gemini(subject_key, full_prompt, history=history)
@@ -303,11 +301,6 @@ async def handle_text(message: Message):
     if len(history) > 6:
         history.pop(0)
         history.pop(0)
-        
-    try:
-        await processing_msg.delete()
-    except:
-        pass
     
     chunks = split_text(solution)
     user_steps[user_id] = {"chunks": chunks, "index": 0}
@@ -334,8 +327,6 @@ async def handle_photo(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
     
-    processing_msg = await message.answer("📸 Читаю фото...")
-    
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
@@ -347,21 +338,12 @@ async def handle_photo(message: Message):
         
         solution = await ask_gemini(subject_key, [image_part, prompt])
         
-        try:
-            await processing_msg.delete()
-        except:
-            pass
-        
         await message.answer(
             f"📚 **{subject_name}**\n\n{solution}",
             parse_mode="Markdown",
             reply_markup=main_menu_kb()
         )
     except Exception as e:
-        try:
-            await processing_msg.delete()
-        except:
-            pass
         await message.answer("⚠️ Ошибка фото.")
 
 @router.message(F.voice | F.audio)
@@ -369,8 +351,6 @@ async def handle_voice(message: Message):
     user_id = message.from_user.id
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
-    
-    processing_msg = await message.answer("🎧 Слушаю...")
     
     try:
         file_id = message.voice.file_id if message.voice else message.audio.file_id
@@ -385,25 +365,18 @@ async def handle_voice(message: Message):
             os.remove(local_audio)
             
         if not transcribed_text:
-            await processing_msg.edit_text("⚠️ Не распознано.")
+            await message.answer("⚠️ Не распознано.")
             return
             
-        await processing_msg.edit_text(f"🗣 **Текст:** {transcribed_text}\n\n⚡ Решаю...")
-        
         full_prompt = f"Предмет: {subject_name}\nВопрос: {transcribed_text}"
         solution = await ask_gemini(subject_key, full_prompt)
         
-        await processing_msg.delete()
         await message.answer(
-            f"📚 **{subject_name}**\n\n{solution}",
+            f"📚 **{subject_name}** (из голоса: {transcribed_text})\n\n{solution}",
             parse_mode="Markdown",
             reply_markup=main_menu_kb()
         )
     except Exception as e:
-        try:
-            await processing_msg.delete()
-        except:
-            pass
         await message.answer("⚠️ Ошибка аудио.")
 
 async def main():
@@ -415,9 +388,9 @@ async def main():
         BotCommand(command="train", description="🎯 Тренажер")
     ])
     
-    print(f"Бот запущен на максимальной скорости! Ключей: {len(clients)}")
+    print(f"Бот запущен! Ключей: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+                                 
