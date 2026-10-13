@@ -141,8 +141,6 @@ async def ask_gemini(subject_key: str, prompt_content, history=None):
             
         if len(clients) > 1:
             current_client_idx = (current_client_idx + 1) % len(clients)
-        
-        await asyncio.sleep(1)
             
     return "⚠️ Серверы временно перегружены. Подожди пару секунд и повтори запрос."
 
@@ -415,7 +413,7 @@ async def main():
         BotCommand(command="train", description="🎯 Тренажер задач (получить пример)")
     ])
     
-    print(f"Бот запущен на Gemini 3.5 Flash Lite! Ключей в ротации: {len(clients)}")
+    print(f"Бот запущен! Ключей в ротации: {len(clients)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
