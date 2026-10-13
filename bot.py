@@ -49,8 +49,8 @@ SUBJECTS = {
 }
 
 SUBJECT_PROMPTS = {
-    "math": "Решай математические задачи. Если вопрос элементарный, отвечай коротко, без лишних шагов.",
-    "algebra": "Объясняй алгебраические преобразования кратко и по делу.",
+    "math": "Решай математические задачи быстро и по шагам.",
+    "algebra": "Объясняй алгебраические преобразования кратко.",
     "geometry": "Давай четкий ход решения геометрических задач.",
     "physics": "Пиши формулы и быстрый расчет в СИ.",
     "chemistry": "Балансируй реакции и давай быстрый ответ.",
@@ -243,21 +243,14 @@ async def process_menu(callback: CallbackQuery):
 async def process_quiz(callback: CallbackQuery):
     user_id = callback.from_user.id
     subject_key = user_subjects.get(user_id, "math")
+    history = user_histories.get(user_id, [])
     
-    if subject_key == "math":
-        await callback.answer("Тест загружен!")
-        await callback.message.answer(
-            "🧠 **Проверка по теме (Математика):**\n\n"
-            "Чему будет равно 3 + 3 * 2?\n\n"
-            "1) 12\n"
-            "2) 9\n"
-            "3) 6",
-            parse_mode="Markdown"
-        )
-        return
+    last_context = ""
+    if history:
+        last_context = f"Основываясь на последнем вопросе ученика: '{history[-1].get('text', '')}',"
 
-    await callback.answer("Генерирую тест...")
-    prompt = "Составь мини-тест из 1 вопроса с 3 вариантами ответа строго по учебной теме."
+    # Не используем callback.answer(), чтобы не было задержки и всплывающих окон
+    prompt = f"{last_context} Составь мини-тест из 1 вопроса с 3 вариантами ответа строго по этой же теме."
     res = await ask_gemini(subject_key, prompt)
     await callback.message.answer(f"🧠 **Проверка по теме:**\n\n{res}", parse_mode="Markdown")
 
@@ -284,21 +277,6 @@ async def handle_text(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
     
-    msg_text = message.text.strip().lower()
-    
-    if "2+2" in msg_text or "два плюс два" in msg_text:
-        await message.answer("📚 **Математика**\n\n**4**", parse_mode="Markdown")
-        await message.answer("Закрепим?", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧠 Проверить себя", callback_data="quiz_test")]
-        ]))
-        return
-    elif "2*2" in msg_text or "2х2" in msg_text:
-        await message.answer("📚 **Математика**\n\n**4**", parse_mode="Markdown")
-        await message.answer("Закрепим?", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧠 Проверить себя", callback_data="quiz_test")]
-        ]))
-        return
-
     if user_id in user_trains:
         correct = user_trains[user_id]["answer"]
         user_ans = message.text.strip().lower()
@@ -414,4 +392,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                          
+    
