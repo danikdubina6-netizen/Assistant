@@ -10,8 +10,6 @@ from aiogram.types import (
     CallbackQuery,
     BotCommand
 )
-from google import genai
-from google.genai import types
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -26,12 +24,9 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-clients = []
-for key in [GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3]:
-    if key:
-        clients.append(genai.Client(api_key=key))
-
-current_client_idx = 0
+# Собираем ключи для быстрой ротации
+keys = [k for k in [GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3] if k]
+current_key_idx = 0
 
 SUBJECTS = {
     "math": "📐 Математика",
@@ -87,62 +82,52 @@ def main_menu_kb():
         [InlineKeyboardButton(text="🔄 Сменить предмет", callback_data="menu_subjects")]
     ])
 
-async def ask_gemini(subject_key: str, prompt_content, history=None):
-    global current_client_idx
+# Супер-быстрый прямой запрос к Gemini REST API через aiohttp
+async def ask_gemini_fast(subject_key: str, text_prompt: str, history=None):
+    global current_key_idx
     specific_instruction = SUBJECT_PROMPTS.get(subject_key, "Помогай по учебе.")
-    system_instruction = (
-        f"Ты — строгий и быстрый школьный репетитор-помощник. {specific_instruction} "
-        "ВАЖНО: Отвечай строго на вопросы по выбранному школьному предмету. "
-        "Если вопрос сторонний, говори: 'Я школьный репетитор, давай решать учебные задачи!'. "
-        "Без LaTeX (никаких $, \\). Выделяй главное жирным шрифтом."
+    system_text = (
+        f"Ты — быстрый школьный репетитор. {specific_instruction} "
+        "Отвечай строго по делу, без воды. Без LaTeX (никаких $, \\). Выделяй главное жирным шрифтом."
     )
     
-    full_contents = []
+    contents = []
     if history:
         for h in history:
-            full_contents.append(f"{h['role'].upper()}: {h['text']}")
-    
-    if isinstance(prompt_content, list):
-        full_contents.extend(prompt_content)
-    else:
-        full_contents.append(prompt_content)
+            contents.append({"role": "user" if h['role'] == 'user' else "model", "parts": [{"text": h['text']}]})
+            
+    contents.append({"role": "user", "parts": [{"text": text_prompt}]})
 
-    total_attempts = len(clients) * 2
-    for attempt in range(total_attempts):
-        client = clients[current_client_idx]
-        try:
-            response = client.models.generate_content(
-                model='gemini-3.5-flash-lite',
-                contents=full_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.1,
-                    max_output_tokens=800,
-                )
-            )
+    payload = {
+        "system_instruction": {"parts": [{"text": system_text}]},
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 800
+        }
+    }
+
+    url_template = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}"
+
+    async with aiohttp.ClientSession() as session:
+        for _ in range(len(keys) * 2):
+            key = keys[current_key_idx]
+            url = url_template.format(key)
+            try:
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts and "text" in parts[0]:
+                                return parts[0]["text"].strip()
+            except Exception as e:
+                print(f"Ошибка API на ключе #{current_key_idx}: {e}")
             
-            answer_text = None
-            if response and hasattr(response, 'text') and response.text:
-                answer_text = response.text
-            elif response and hasattr(response, 'candidates') and response.candidates:
-                for candidate in response.candidates:
-                    if candidate.content and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                answer_text = part.text
-                                break
-                    if answer_text:
-                        break
-            
-            if answer_text and str(answer_text).strip():
-                return str(answer_text).strip()
+            if len(keys) > 1:
+                current_key_idx = (current_key_idx + 1) % len(keys)
                 
-        except Exception as e:
-            print(f"Ошибка на ключе #{current_client_idx}: {e}")
-            
-        if len(clients) > 1:
-            current_client_idx = (current_client_idx + 1) % len(clients)
-            
     return "⚠️ Перегруз серверов. Повтори запрос."
 
 def split_text(text: str, limit: int = 3500):
@@ -181,7 +166,7 @@ async def transcribe_audio_groq(file_path: str) -> str:
 async def cmd_start(message: Message):
     user_subjects[message.from_user.id] = "math"
     await message.answer(
-        "⚡ Бот настроен! Выбери предмет:",
+        "⚡ Бот запущен на молниеносном API! Выбери предмет:",
         reply_markup=subjects_kb()
     )
 
@@ -192,7 +177,7 @@ async def cmd_train(message: Message):
     subject_name = SUBJECTS.get(subject_key, "Математика")
     
     prompt = f"Дай 1 короткую задачу по предмету {subject_name}. Внизу напиши ОТВЕТ: [ответ]."
-    res = await ask_gemini(subject_key, prompt)
+    res = await ask_gemini_fast(subject_key, prompt)
     
     parts = res.split("ОТВЕТ:")
     task_text = parts[0].strip()
@@ -213,11 +198,10 @@ async def process_subject(callback: CallbackQuery):
     user_histories[callback.from_user.id] = []
     
     await callback.message.edit_text(
-        f"✅ Предмет: **{subject_name}**\n\nЖду задачу, фото или голос 👇",
+        f"✅ Предмет: **{subject_name}**\n\nЖду задачу или вопрос 👇",
         parse_mode="Markdown",
         reply_markup=main_menu_kb()
     )
-    await callback.answer()
 
 @router.callback_query(F.data.startswith("menu_"))
 async def process_menu(callback: CallbackQuery):
@@ -229,14 +213,12 @@ async def process_menu(callback: CallbackQuery):
     if action == "subjects":
         await callback.message.edit_text("Выбери предмет:", reply_markup=subjects_kb())
     elif action == "train":
-        await callback.answer()
         fake_msg = callback.message
         fake_msg.from_user = callback.from_user
         await cmd_train(fake_msg)
     elif action == "glossary":
-        await callback.answer("Делаю шпаргалку...")
         prompt = f"Дай топ-3 коротких термина по предмету {subject_name} с определениями."
-        res = await ask_gemini(subject_key, prompt)
+        res = await ask_gemini_fast(subject_key, prompt)
         await callback.message.answer(f"📖 **Шпаргалка: {subject_name}**\n\n{res}", parse_mode="Markdown")
 
 @router.callback_query(F.data == "quiz_test")
@@ -249,9 +231,8 @@ async def process_quiz(callback: CallbackQuery):
     if history:
         last_context = f"Основываясь на последнем вопросе ученика: '{history[-1].get('text', '')}',"
 
-    # Не используем callback.answer(), чтобы не было задержки и всплывающих окон
     prompt = f"{last_context} Составь мини-тест из 1 вопроса с 3 вариантами ответа строго по этой же теме."
-    res = await ask_gemini(subject_key, prompt)
+    res = await ask_gemini_fast(subject_key, prompt)
     await callback.message.answer(f"🧠 **Проверка по теме:**\n\n{res}", parse_mode="Markdown")
 
 @router.callback_query(F.data == "next_chunk")
@@ -267,9 +248,6 @@ async def process_next_chunk(callback: CallbackQuery):
         user_steps[user_id]["index"] = idx
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Дальше ➡️", callback_data="next_chunk")]]) if idx < len(chunks) - 1 else None
         await callback.message.answer(chunks[idx], reply_markup=kb, parse_mode="Markdown")
-        await callback.answer()
-    else:
-        await callback.answer("Конец.")
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_text(message: Message):
@@ -293,7 +271,7 @@ async def handle_text(message: Message):
     history = user_histories[user_id]
     
     full_prompt = f"Предмет: {subject_name}\nВопрос: {message.text}"
-    solution = await ask_gemini(subject_key, full_prompt, history=history)
+    solution = await ask_gemini_fast(subject_key, full_prompt, history=history)
     
     history.append({"role": "user", "text": message.text})
     history.append({"role": "assistant", "text": solution})
@@ -320,31 +298,6 @@ async def handle_text(message: Message):
     if len(chunks) == 1:
         await message.answer("Закрепим?", reply_markup=quiz_kb)
 
-@router.message(F.photo)
-async def handle_photo(message: Message):
-    user_id = message.from_user.id
-    subject_key = user_subjects.get(user_id, "math")
-    subject_name = SUBJECTS.get(subject_key, "Общий")
-    
-    try:
-        photo = message.photo[-1]
-        file_info = await bot.get_file(photo.file_id)
-        photo_bytes_io = await bot.download_file(file_info.file_path)
-        photo_bytes = photo_bytes_io.read()
-        
-        image_part = types.Part.from_bytes(data=photo_bytes, mime_type='image/jpeg')
-        prompt = f"Предмет: {subject_name}. Быстро разбери задание с картинки."
-        
-        solution = await ask_gemini(subject_key, [image_part, prompt])
-        
-        await message.answer(
-            f"📚 **{subject_name}**\n\n{solution}",
-            parse_mode="Markdown",
-            reply_markup=main_menu_kb()
-        )
-    except Exception as e:
-        await message.answer("⚠️ Ошибка фото.")
-
 @router.message(F.voice | F.audio)
 async def handle_voice(message: Message):
     user_id = message.from_user.id
@@ -368,7 +321,7 @@ async def handle_voice(message: Message):
             return
             
         full_prompt = f"Предмет: {subject_name}\nВопрос: {transcribed_text}"
-        solution = await ask_gemini(subject_key, full_prompt)
+        solution = await ask_gemini_fast(subject_key, full_prompt)
         
         await message.answer(
             f"📚 **{subject_name}** (из голоса: {transcribed_text})\n\n{solution}",
@@ -387,9 +340,9 @@ async def main():
         BotCommand(command="train", description="🎯 Тренажер")
     ])
     
-    print(f"Бот запущен! Ключей: {len(clients)}")
+    print(f"Бот на прямом API запущен! Ключей: {len(keys)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+        
