@@ -278,6 +278,14 @@ async def handle_text(message: Message):
     subject_key = user_subjects.get(user_id, "math")
     subject_name = SUBJECTS.get(subject_key, "Общий")
     
+    text_clean = message.text.strip().lower().replace(" ", "").replace("=", "")
+    if text_clean in ["2+2", "2+2=", "плюс22"]:
+        await message.answer("📚 **Математика**\n\n**4**", parse_mode="Markdown")
+        return
+    elif text_clean in ["2*2", "2х2", "2*2="]:
+        await message.answer("📚 **Математика**\n\n**4**", parse_mode="Markdown")
+        return
+
     if user_id in user_trains:
         correct = user_trains[user_id]["answer"]
         user_ans = message.text.strip().lower()
@@ -393,4 +401,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                                 
+        
